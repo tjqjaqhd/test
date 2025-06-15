@@ -11,6 +11,12 @@ import asyncio
 from datetime import datetime, timedelta
 import random
 import time
+import sys
+import os
+
+# 서비스 모듈 임포트
+sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
+from src.services.exchange_service import exchange_service
 
 router = APIRouter(prefix="/api/v1/simulation", tags=["simulation"])
 
@@ -88,12 +94,31 @@ async def get_simulation_status(simulation_id: str):
     
     sim = active_simulations[simulation_id]
     
-    # 시간 경과에 따른 모의 거래 데이터 업데이트
+    # 실제 시세 데이터로 업데이트
+    try:
+        current_price = await exchange_service.get_current_price(sim["symbol"])
+        market_stats = await exchange_service.get_24h_stats(sim["symbol"])
+        
+        if current_price and market_stats:
+            sim["current_price"] = current_price
+            sim["market_change"] = market_stats.get("percentage", 0)
+            sim["volume"] = market_stats.get("volume", 0)
+            sim["last_updated"] = datetime.now().isoformat()
+    except Exception as e:
+        # 실제 데이터 조회 실패시 로그만 남기고 계속 진행
+        print(f"실시간 데이터 조회 실패: {e}")
+    
+    # 시간 경과에 따른 시뮬레이션 상태 업데이트
     elapsed_time = (datetime.now() - sim["start_time"]).total_seconds() / 3600
     if elapsed_time < sim["duration_hours"]:
-        # 진행 중인 시뮬레이션 - 랜덤 업데이트
-        if random.random() < 0.3:  # 30% 확률로 새 거래 발생
-            change_percent = random.uniform(-0.02, 0.02)
+        # 진행 중인 시뮬레이션 - 실제 시장 변동성 반영
+        if random.random() < 0.4:  # 40% 확률로 새 거래 발생
+            # 실제 시장 변동성 기반 거래 시뮬레이션
+            market_volatility = abs(sim.get("market_change", 0)) / 100
+            base_change = random.uniform(-0.015, 0.015)
+            volatility_factor = 1 + (market_volatility * random.uniform(-1, 1))
+            
+            change_percent = base_change * volatility_factor
             change_amount = sim["current_balance"] * change_percent
             sim["current_balance"] += change_amount
             sim["trade_count"] += 1

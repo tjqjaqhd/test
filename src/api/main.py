@@ -14,6 +14,7 @@ from src.core.config import get_settings
 from src.core.logging_config import get_logger
 from src.api.routes.simulation import router as simulation_router
 from src.api.routes.monitoring import router as monitoring_router
+from src.api.routes.market import router as market_router
 
 logger = get_logger(__name__)
 
@@ -50,6 +51,7 @@ def create_app() -> FastAPI:
     # 라우터 등록
     app.include_router(simulation_router)
     app.include_router(monitoring_router)
+    app.include_router(market_router)
     
     # 기본 엔드포인트
     @app.get("/")

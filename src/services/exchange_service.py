@@ -30,30 +30,39 @@ class ExchangeService:
     def _initialize_exchanges(self):
         """거래소 초기화"""
         try:
-            # Upbit 초기화
-            self.exchanges['upbit'] = ccxt.upbit({
-                'apiKey': self.settings.upbit_access_key,
-                'secret': self.settings.upbit_secret_key,
-                'sandbox': self.settings.simulation_mode,
-                'enableRateLimit': True,
-            })
-            
-            # Binance 초기화
-            self.exchanges['binance'] = ccxt.binance({
-                'apiKey': self.settings.binance_api_key,
-                'secret': self.settings.binance_secret_key,
-                'sandbox': self.settings.simulation_mode,
-                'enableRateLimit': True,
-            })
+            if self.settings.simulation_mode:
+                # 시뮬레이션 모드: API 키 없이 초기화
+                logger.info("🎯 시뮬레이션 모드로 거래소 초기화")
+                self.exchanges['upbit'] = ccxt.upbit({
+                    'enableRateLimit': True,
+                })
+                self.exchanges['binance'] = ccxt.binance({
+                    'enableRateLimit': True,
+                })
+            else:
+                # 실제 거래 모드: API 키 사용
+                self.exchanges['upbit'] = ccxt.upbit({
+                    'apiKey': self.settings.upbit_access_key,
+                    'secret': self.settings.upbit_secret_key,
+                    'enableRateLimit': True,
+                })
+                
+                # Binance는 sandbox 모드 지원
+                self.exchanges['binance'] = ccxt.binance({
+                    'apiKey': self.settings.binance_api_key,
+                    'secret': self.settings.binance_secret_key,
+                    'sandbox': False,
+                    'enableRateLimit': True,
+                })
             
             logger.info("✅ 거래소 연결 초기화 완료")
             
         except Exception as e:
             logger.error(f"거래소 초기화 오류: {e}")
-            # 시뮬레이션 모드에서는 기본 설정으로 계속 진행
-            if self.settings.simulation_mode:
-                self.exchanges['upbit'] = ccxt.upbit({'sandbox': True, 'enableRateLimit': True})
-                self.exchanges['binance'] = ccxt.binance({'sandbox': True, 'enableRateLimit': True})
+            # 기본 설정으로 계속 진행
+            self.exchanges['upbit'] = ccxt.upbit({'enableRateLimit': True})
+            self.exchanges['binance'] = ccxt.binance({'enableRateLimit': True})
+            logger.info("⚠️ 기본 설정으로 거래소 초기화됨")
     
     async def get_current_price(self, symbol: str, exchange: str = 'upbit') -> Optional[float]:
         """현재 가격 조회 (캐시 포함)"""

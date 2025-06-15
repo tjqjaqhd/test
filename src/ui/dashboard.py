@@ -205,29 +205,66 @@ def show_realtime_monitoring():
     if "simulation_id" not in st.session_state:
         st.info("👈 사이드바에서 시뮬레이션을 시작해주세요.")
 
-        # 데모 차트 표시
-        st.subheader("📈 데모 차트")
-        demo_data = fetch_real_market_data()
-
-        fig = go.Figure()
-        fig.add_trace(go.Scatter(
-            x=demo_data['time'],
-            y=demo_data['balance'],
-            mode='lines+markers',
-            name='잔고 변화',
-            line=dict(color='#4ECDC4', width=3),
-            marker=dict(size=6)
-        ))
-
-        fig.update_layout(
-            title="💰 데모: 잔고 변화",
-            xaxis_title="시간",
-            yaxis_title="잔고 (원)",
-            template="plotly_white",
-            height=400
+        # 실시간 시장 데이터 표시
+        st.subheader("📈 실시간 시장 데이터")
+        selected_symbol = st.selectbox(
+            "거래쌍 선택",
+            ["BTC/KRW", "ETH/KRW", "XRP/KRW", "ADA/KRW"],
+            key="market_symbol"
         )
+        
+        market_data = fetch_real_market_data(selected_symbol)
+        
+        # 현재 가격 및 통계 표시
+        if market_data:
+            col1, col2, col3, col4 = st.columns(4)
+            
+            with col1:
+                price = market_data.get('current_price', 0)
+                st.metric("현재 가격", f"{price:,.0f}원" if price > 1000 else f"{price:.2f}원")
+            
+            with col2:
+                stats = market_data.get('stats', {})
+                change = stats.get('change', 0)
+                st.metric("전일 대비", f"{change:+,.0f}원" if abs(change) > 1 else f"{change:+.4f}원")
+            
+            with col3:
+                percentage = stats.get('percentage', 0)
+                st.metric("변동률", f"{percentage:+.2f}%")
+            
+            with col4:
+                data_source = market_data.get('data_source', 'unknown')
+                source_icon = "🔴" if data_source == 'real' else "🟡"
+                st.metric("데이터", f"{source_icon} {data_source.upper()}")
+            
+            # 차트 표시
+            chart_data = market_data.get('chart_data', [])
+            if chart_data:
+                df = pd.DataFrame(chart_data)
+                
+                fig = go.Figure()
+                fig.add_trace(go.Scatter(
+                    x=df['time'],
+                    y=df['price'],
+                    mode='lines+markers',
+                    name=f'{selected_symbol} 가격',
+                    line=dict(color='#4ECDC4', width=3),
+                    marker=dict(size=4)
+                ))
 
-        st.plotly_chart(fig, use_container_width=True)
+                fig.update_layout(
+                    title=f"💰 {selected_symbol} 가격 차트",
+                    xaxis_title="시간",
+                    yaxis_title="가격 (원)" if "KRW" in selected_symbol else "가격",
+                    template="plotly_white",
+                    height=400
+                )
+
+                st.plotly_chart(fig, use_container_width=True)
+        
+        # 새로고침 버튼
+        if st.button("🔄 데이터 새로고침", key="refresh_market"):
+            st.rerun()
         return
 
     # 시뮬레이션 상태 조회
@@ -431,37 +468,97 @@ def show_system_status():
 def fetch_real_market_data(symbol: str = "BTC/KRW"):
     """실제 시장 데이터 조회"""
     try:
-        # 실시간 시세 조회
-        response = requests.get(f"{API_BASE_URL}/market/stats/{symbol}", timeout=5)
-        if response.status_code == 200:
-            return response.json()
-
-        # OHLCV 데이터 조회
-        ohlcv_response = requests.get(f"{API_BASE_URL}/market/ohlcv/{symbol}?limit=24", timeout=5)
-        if ohlcv_response.status_code == 200:
-            ohlcv_data = ohlcv_response.json()
-            return ohlcv_data
-
+        # 1. 현재 가격 조회
+        price_response = requests.get(f"{API_BASE_URL}/market/price/{symbol}", timeout=5)
+        if price_response.status_code == 200:
+            price_data = price_response.json()
+            
+            # 2. 24시간 통계 조회
+            stats_response = requests.get(f"{API_BASE_URL}/market/stats/{symbol}", timeout=5)
+            if stats_response.status_code == 200:
+                stats_data = stats_response.json()
+                
+                # 3. OHLCV 데이터 조회
+                ohlcv_response = requests.get(f"{API_BASE_URL}/market/ohlcv/{symbol}?limit=24", timeout=5)
+                if ohlcv_response.status_code == 200:
+                    ohlcv_data = ohlcv_response.json()
+                    
+                    # 차트용 데이터 생성
+                    chart_data = []
+                    for item in ohlcv_data.get('data', []):
+                        chart_data.append({
+                            'time': pd.to_datetime(item['datetime']),
+                            'price': item['close'],
+                            'volume': item['volume']
+                        })
+                    
+                    return {
+                        'current_price': price_data.get('price'),
+                        'stats': stats_data.get('stats', {}),
+                        'chart_data': chart_data,
+                        'symbol': symbol,
+                        'data_source': 'real'
+                    }
+        
+        # API 연결 실패 시 알림
+        st.warning(f"⚠️ {symbol} 실시간 데이터 조회 실패 - 데모 데이터로 표시")
+        
+    except requests.exceptions.Timeout:
+        st.warning("⏰ 데이터 조회 시간 초과 - 데모 데이터로 표시")
+    except requests.exceptions.ConnectionError:
+        st.warning("🔌 서버 연결 실패 - 데모 데이터로 표시")
     except Exception as e:
-        st.error(f"실시간 데이터 조회 실패: {e}")
+        st.warning(f"❌ 데이터 조회 오류: {str(e)[:50]} - 데모 데이터로 표시")
 
     # 실패시 데모 데이터 반환
-    return generate_demo_data()
+    return generate_demo_data(symbol)
 
-def generate_demo_data():
+def generate_demo_data(symbol: str = "BTC/KRW"):
     """데모 차트 데이터 생성 (백업용)"""
-    dates = pd.date_range(start='2024-01-01', periods=30, freq='D')
-    base_price = 50000000
+    dates = pd.date_range(start=datetime.now() - timedelta(days=1), periods=24, freq='h')
+    
+    # 심볼별 기본 가격 설정
+    base_prices = {
+        "BTC/KRW": 50000000,
+        "ETH/KRW": 3000000,
+        "XRP/KRW": 1000,
+        "ADA/KRW": 500
+    }
+    
+    base_price = base_prices.get(symbol, 1000000)
     prices = []
+    volumes = []
 
     for i in range(len(dates)):
-        change = random.uniform(-0.05, 0.05)
+        # 현실적인 가격 변동 (-3% ~ +3%)
+        change = random.uniform(-0.03, 0.03)
         base_price *= (1 + change)
         prices.append(base_price)
+        
+        # 거래량 생성
+        volumes.append(random.uniform(100, 1000))
+
+    chart_data = []
+    for i, date in enumerate(dates):
+        chart_data.append({
+            'time': date,
+            'price': prices[i],
+            'volume': volumes[i]
+        })
 
     return {
-        'time': dates,
-        'balance': prices
+        'current_price': prices[-1],
+        'stats': {
+            'price': prices[-1],
+            'change': prices[-1] - prices[0],
+            'percentage': ((prices[-1] - prices[0]) / prices[0]) * 100,
+            'high': max(prices),
+            'low': min(prices),
+            'volume': sum(volumes)
+        },
+        'chart_data': chart_data,
+        'symbol': symbol,
+        'data_source': 'demo'
     }
 
 def generate_mock_chart_data(trade_count, initial_balance):

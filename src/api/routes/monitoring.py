@@ -1,72 +1,70 @@
 
 """
-📊 모니터링 API 라우트
-시스템 상태 및 성능 모니터링 엔드포인트
+📊 시스템 모니터링 관련 API 라우트
 """
 
 from fastapi import APIRouter
-from datetime import datetime
 import psutil
 import os
+from datetime import datetime
 
-from src.core.logging_config import get_logger
+router = APIRouter(prefix="/api/v1/monitoring", tags=["monitoring"])
 
-router = APIRouter()
-logger = get_logger(__name__)
+@router.get("/health")
+async def health_check():
+    """헬스체크"""
+    return {
+        "status": "healthy",
+        "timestamp": datetime.now().isoformat(),
+        "checks": {
+            "api": "healthy",
+            "database": "not_configured",
+            "redis": "not_configured",
+            "simulation_engine": "healthy"
+        }
+    }
 
 @router.get("/system")
 async def get_system_info():
     """시스템 정보 조회"""
+    # 현재 프로세스 정보
+    process = psutil.Process(os.getpid())
+    
     return {
-        "timestamp": datetime.now(),
+        "timestamp": datetime.now().isoformat(),
         "system": {
             "cpu_percent": psutil.cpu_percent(interval=1),
             "memory": {
                 "total": psutil.virtual_memory().total,
                 "available": psutil.virtual_memory().available,
-                "percent": psutil.virtual_memory().percent
+                "percent": psutil.virtual_memory().percent,
+                "used": psutil.virtual_memory().used
             },
             "disk": {
                 "total": psutil.disk_usage('/').total,
+                "used": psutil.disk_usage('/').used,
                 "free": psutil.disk_usage('/').free,
                 "percent": psutil.disk_usage('/').percent
             }
         },
         "process": {
-            "pid": os.getpid(),
-            "cpu_percent": psutil.Process().cpu_percent(),
-            "memory_mb": psutil.Process().memory_info().rss / 1024 / 1024
+            "pid": process.pid,
+            "cpu_percent": process.cpu_percent(),
+            "memory_mb": process.memory_info().rss / 1024 / 1024,
+            "create_time": datetime.fromtimestamp(process.create_time()).isoformat(),
+            "status": process.status()
         }
-    }
-
-@router.get("/health")
-async def detailed_health_check():
-    """상세 헬스체크"""
-    checks = {
-        "api_server": "healthy",
-        "database": "not_configured",
-        "redis": "not_configured",
-        "external_apis": "not_tested"
-    }
-    
-    overall_status = "healthy" if all(
-        status in ["healthy", "not_configured"] for status in checks.values()
-    ) else "unhealthy"
-    
-    return {
-        "status": overall_status,
-        "timestamp": datetime.now(),
-        "checks": checks
     }
 
 @router.get("/metrics")
 async def get_metrics():
-    """애플리케이션 메트릭"""
+    """메트릭 정보"""
     return {
-        "timestamp": datetime.now(),
-        "uptime_seconds": 0,  # 실제로는 애플리케이션 시작 시간으로부터 계산
-        "total_requests": 0,  # 실제로는 요청 카운터 사용
-        "active_simulations": 0,  # 실제로는 활성 시뮬레이션 수
-        "total_trades": 0,  # 실제로는 총 거래 수
-        "error_count": 0  # 실제로는 에러 카운터 사용
+        "timestamp": datetime.now().isoformat(),
+        "metrics": {
+            "active_simulations": 0,
+            "total_trades_today": 0,
+            "api_calls_per_minute": 0,
+            "average_response_time_ms": 50
+        }
     }

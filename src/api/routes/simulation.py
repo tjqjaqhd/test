@@ -1,144 +1,145 @@
 
 """
-📊 시뮬레이션 API 라우트
-백테스팅 및 실시간 시뮬레이션 관련 엔드포인트
+🎯 시뮬레이션 관련 API 라우트
 """
 
 from fastapi import APIRouter, HTTPException, BackgroundTasks
-from typing import List, Optional
-from datetime import datetime, timedelta
+from pydantic import BaseModel
+from typing import Optional, Dict, Any
 import uuid
+import asyncio
+from datetime import datetime, timedelta
+import random
+import time
 
-from src.core.logging_config import get_logger
-from src.api.models.schemas import (
-    SimulationRequest,
-    SimulationResponse,
-    BacktestRequest,
-    BacktestResponse
-)
+router = APIRouter(prefix="/api/v1/simulation", tags=["simulation"])
 
-router = APIRouter()
-logger = get_logger(__name__)
+# 메모리에 시뮬레이션 상태 저장 (실제 운영에서는 DB 사용)
+active_simulations: Dict[str, Dict] = {}
 
-# 임시 시뮬레이션 결과 저장소 (실제로는 데이터베이스 사용)
-simulation_results = {}
+class SimulationRequest(BaseModel):
+    strategy: str
+    symbol: str
+    initial_balance: float
+    duration_hours: int
 
-@router.post("/start", response_model=SimulationResponse)
-async def start_simulation(request: SimulationRequest, background_tasks: BackgroundTasks):
-    """새로운 시뮬레이션 시작"""
+class BacktestRequest(BaseModel):
+    strategy: str
+    symbol: str
+    start_date: str
+    end_date: str
+    initial_balance: float
+
+def generate_mock_trading_data(duration_hours: int, initial_balance: float):
+    """모의 거래 데이터 생성"""
+    trades_per_hour = random.randint(2, 5)
+    total_trades = duration_hours * trades_per_hour
+    
+    balance = initial_balance
+    trades = []
+    
+    for i in range(total_trades):
+        # 랜덤한 수익/손실 (-5% ~ +5%)
+        change_percent = random.uniform(-0.05, 0.05)
+        change_amount = balance * change_percent
+        balance += change_amount
+        
+        trades.append({
+            "timestamp": datetime.now() - timedelta(hours=duration_hours-i/trades_per_hour),
+            "balance": balance,
+            "change": change_amount,
+            "profit_rate": ((balance - initial_balance) / initial_balance) * 100
+        })
+    
+    return trades
+
+@router.post("/start")
+async def start_simulation(request: SimulationRequest):
+    """시뮬레이션 시작"""
     simulation_id = str(uuid.uuid4())
     
-    logger.info(f"🚀 시뮬레이션 시작: {simulation_id}")
-    logger.info(f"전략: {request.strategy}, 자산: {request.symbol}, 초기자본: {request.initial_balance:,}원")
-    
-    # 시뮬레이션 결과 초기화
-    simulation_results[simulation_id] = {
+    # 시뮬레이션 상태 초기화
+    active_simulations[simulation_id] = {
         "id": simulation_id,
-        "status": "running",
         "strategy": request.strategy,
         "symbol": request.symbol,
         "initial_balance": request.initial_balance,
         "current_balance": request.initial_balance,
-        "trades": [],
-        "created_at": datetime.now(),
-        "updated_at": datetime.now()
+        "duration_hours": request.duration_hours,
+        "status": "running",
+        "start_time": datetime.now(),
+        "trade_count": 0,
+        "profit_loss": 0.0,
+        "profit_rate": 0.0,
+        "trades": []
     }
     
-    # 백그라운드에서 시뮬레이션 실행
-    background_tasks.add_task(run_simulation_background, simulation_id, request)
-    
-    return SimulationResponse(
-        simulation_id=simulation_id,
-        status="started",
-        message="시뮬레이션이 시작되었습니다."
-    )
+    return {
+        "simulation_id": simulation_id,
+        "status": "started",
+        "message": "시뮬레이션이 시작되었습니다"
+    }
 
 @router.get("/status/{simulation_id}")
 async def get_simulation_status(simulation_id: str):
     """시뮬레이션 상태 조회"""
-    if simulation_id not in simulation_results:
-        raise HTTPException(status_code=404, detail="시뮬레이션을 찾을 수 없습니다.")
+    if simulation_id not in active_simulations:
+        raise HTTPException(status_code=404, detail="시뮬레이션을 찾을 수 없습니다")
     
-    result = simulation_results[simulation_id]
-    return {
-        "simulation_id": simulation_id,
-        "status": result["status"],
-        "current_balance": result["current_balance"],
-        "profit_loss": result["current_balance"] - result["initial_balance"],
-        "profit_rate": ((result["current_balance"] / result["initial_balance"]) - 1) * 100,
-        "trade_count": len(result["trades"]),
-        "updated_at": result["updated_at"]
-    }
-
-@router.get("/results/{simulation_id}")
-async def get_simulation_results(simulation_id: str):
-    """시뮬레이션 전체 결과 조회"""
-    if simulation_id not in simulation_results:
-        raise HTTPException(status_code=404, detail="시뮬레이션을 찾을 수 없습니다.")
+    sim = active_simulations[simulation_id]
     
-    return simulation_results[simulation_id]
+    # 시간 경과에 따른 모의 거래 데이터 업데이트
+    elapsed_time = (datetime.now() - sim["start_time"]).total_seconds() / 3600
+    if elapsed_time < sim["duration_hours"]:
+        # 진행 중인 시뮬레이션 - 랜덤 업데이트
+        if random.random() < 0.3:  # 30% 확률로 새 거래 발생
+            change_percent = random.uniform(-0.02, 0.02)
+            change_amount = sim["current_balance"] * change_percent
+            sim["current_balance"] += change_amount
+            sim["trade_count"] += 1
+            
+            sim["profit_loss"] = sim["current_balance"] - sim["initial_balance"]
+            sim["profit_rate"] = (sim["profit_loss"] / sim["initial_balance"]) * 100
+    else:
+        sim["status"] = "completed"
+    
+    return sim
 
-@router.post("/backtest", response_model=BacktestResponse)
+@router.post("/backtest")
 async def run_backtest(request: BacktestRequest):
     """백테스팅 실행"""
-    logger.info(f"📈 백테스팅 시작: {request.strategy} - {request.symbol}")
-    logger.info(f"기간: {request.start_date} ~ {request.end_date}")
+    # 모의 백테스팅 결과 생성
+    start_date = datetime.fromisoformat(request.start_date.replace('Z', '+00:00'))
+    end_date = datetime.fromisoformat(request.end_date.replace('Z', '+00:00'))
     
-    # 임시 백테스팅 결과 (실제로는 백테스팅 엔진에서 계산)
-    mock_result = {
-        "strategy": request.strategy,
-        "symbol": request.symbol,
-        "period": f"{request.start_date} ~ {request.end_date}",
+    duration_days = (end_date - start_date).days
+    
+    # 랜덤한 결과 생성
+    final_balance = request.initial_balance * random.uniform(0.8, 1.3)  # -20% ~ +30%
+    total_trades = random.randint(50, 200)
+    winning_trades = random.randint(int(total_trades * 0.4), int(total_trades * 0.7))
+    
+    return {
         "initial_balance": request.initial_balance,
-        "final_balance": request.initial_balance * 1.15,  # 15% 수익률 가정
-        "total_trades": 45,
-        "win_rate": 67.5,
-        "max_drawdown": 8.2,
-        "sharpe_ratio": 1.34,
-        "completed_at": datetime.now()
+        "final_balance": final_balance,
+        "total_trades": total_trades,
+        "winning_trades": winning_trades,
+        "win_rate": (winning_trades / total_trades) * 100,
+        "max_drawdown": random.uniform(5, 20),
+        "sharpe_ratio": random.uniform(0.5, 2.0),
+        "duration_days": duration_days
     }
-    
-    return BacktestResponse(**mock_result)
 
-@router.delete("/stop/{simulation_id}")
+@router.get("/list")
+async def list_simulations():
+    """시뮬레이션 목록 조회"""
+    return list(active_simulations.values())
+
+@router.delete("/{simulation_id}")
 async def stop_simulation(simulation_id: str):
     """시뮬레이션 중지"""
-    if simulation_id not in simulation_results:
-        raise HTTPException(status_code=404, detail="시뮬레이션을 찾을 수 없습니다.")
+    if simulation_id not in active_simulations:
+        raise HTTPException(status_code=404, detail="시뮬레이션을 찾을 수 없습니다")
     
-    simulation_results[simulation_id]["status"] = "stopped"
-    simulation_results[simulation_id]["updated_at"] = datetime.now()
-    
-    logger.info(f"⏹️ 시뮬레이션 중지: {simulation_id}")
-    
-    return {"message": "시뮬레이션이 중지되었습니다."}
-
-async def run_simulation_background(simulation_id: str, request: SimulationRequest):
-    """백그라운드에서 실행되는 시뮬레이션 로직"""
-    import asyncio
-    import random
-    
-    # 실제로는 여기서 거래 전략을 실행하고 결과를 업데이트
-    for i in range(50):  # 50회 거래 시뮬레이션
-        await asyncio.sleep(1)  # 1초 대기
-        
-        if simulation_results[simulation_id]["status"] == "stopped":
-            break
-        
-        # 랜덤 거래 결과 생성 (실제로는 전략 로직 실행)
-        profit_loss = random.uniform(-10000, 15000)
-        simulation_results[simulation_id]["current_balance"] += profit_loss
-        
-        # 거래 기록 추가
-        trade = {
-            "timestamp": datetime.now(),
-            "side": "buy" if profit_loss > 0 else "sell",
-            "amount": abs(profit_loss),
-            "profit_loss": profit_loss
-        }
-        simulation_results[simulation_id]["trades"].append(trade)
-        simulation_results[simulation_id]["updated_at"] = datetime.now()
-    
-    # 시뮬레이션 완료
-    simulation_results[simulation_id]["status"] = "completed"
-    logger.info(f"✅ 시뮬레이션 완료: {simulation_id}")
+    active_simulations[simulation_id]["status"] = "stopped"
+    return {"message": "시뮬레이션이 중지되었습니다"}

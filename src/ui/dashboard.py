@@ -12,6 +12,7 @@ import requests
 import json
 from datetime import datetime, timedelta
 import time
+import numpy as np
 
 # 페이지 설정
 st.set_page_config(
@@ -41,17 +42,36 @@ st.markdown("""
         box-shadow: 0 2px 4px rgba(0,0,0,0.1);
         border-left: 4px solid #4ECDC4;
     }
+    
+    .status-running { color: #28a745; }
+    .status-completed { color: #007bff; }
+    .status-stopped { color: #dc3545; }
 </style>
 """, unsafe_allow_html=True)
 
-# API 베이스 URL
+# API 베이스 URL - 실제 서버 주소 사용
 API_BASE_URL = "http://0.0.0.0:8000/api/v1"
+
+def check_api_connection():
+    """API 서버 연결 확인"""
+    try:
+        response = requests.get("http://0.0.0.0:8000/health", timeout=5)
+        return response.status_code == 200
+    except:
+        return False
 
 def main():
     """메인 대시보드"""
     
     # 헤더
     st.markdown('<h1 class="main-header">🔥 암호화폐 트레이딩 시뮬레이터</h1>', unsafe_allow_html=True)
+    
+    # API 연결 상태 확인
+    api_connected = check_api_connection()
+    if not api_connected:
+        st.error("❌ API 서버에 연결할 수 없습니다. 서버가 실행 중인지 확인해주세요.")
+        st.info("💡 메인 터미널에서 'python main.py'가 실행 중인지 확인하세요.")
+        return
     
     # 사이드바 - 설정
     with st.sidebar:
@@ -88,6 +108,14 @@ def main():
         # 시뮬레이션 시작 버튼
         if st.button("🚀 시뮬레이션 시작", type="primary", use_container_width=True):
             start_simulation(strategy, symbol, initial_balance, duration_hours)
+        
+        # 현재 시뮬레이션 상태 표시
+        if "simulation_id" in st.session_state:
+            st.divider()
+            st.subheader("현재 시뮬레이션")
+            st.code(f"ID: {st.session_state.simulation_id[:8]}...")
+            if st.button("🛑 시뮬레이션 중지", type="secondary"):
+                stop_simulation()
     
     # 메인 컨텐츠
     tab1, tab2, tab3, tab4 = st.tabs(["📊 실시간 모니터링", "📈 백테스팅", "📋 거래 기록", "⚙️ 시스템 상태"])
@@ -107,21 +135,36 @@ def main():
 def start_simulation(strategy, symbol, initial_balance, duration_hours):
     """시뮬레이션 시작"""
     try:
-        response = requests.post(f"{API_BASE_URL}/simulation/start", json={
-            "strategy": strategy,
-            "symbol": symbol,
-            "initial_balance": initial_balance,
-            "duration_hours": duration_hours
-        })
+        with st.spinner("시뮬레이션을 시작하는 중..."):
+            response = requests.post(f"{API_BASE_URL}/simulation/start", json={
+                "strategy": strategy,
+                "symbol": symbol,
+                "initial_balance": initial_balance,
+                "duration_hours": duration_hours
+            }, timeout=10)
         
         if response.status_code == 200:
             result = response.json()
             st.session_state.simulation_id = result["simulation_id"]
             st.success(f"✅ 시뮬레이션이 시작되었습니다! ID: {result['simulation_id'][:8]}...")
+            st.rerun()
         else:
-            st.error("❌ 시뮬레이션 시작에 실패했습니다.")
+            st.error(f"❌ 시뮬레이션 시작 실패: {response.text}")
+    except requests.exceptions.Timeout:
+        st.error("❌ 요청 시간 초과: 서버 응답이 느립니다.")
     except Exception as e:
-        st.error(f"❌ 연결 오류: {str(e)}")
+        st.error(f"❌ 시뮬레이션 시작 오류: {str(e)}")
+
+def stop_simulation():
+    """시뮬레이션 중지"""
+    try:
+        response = requests.delete(f"{API_BASE_URL}/simulation/{st.session_state.simulation_id}")
+        if response.status_code == 200:
+            st.success("✅ 시뮬레이션이 중지되었습니다.")
+            del st.session_state.simulation_id
+            st.rerun()
+    except Exception as e:
+        st.error(f"❌ 시뮬레이션 중지 오류: {str(e)}")
 
 def show_realtime_monitoring():
     """실시간 모니터링 화면"""
@@ -129,11 +172,35 @@ def show_realtime_monitoring():
     
     if "simulation_id" not in st.session_state:
         st.info("👈 사이드바에서 시뮬레이션을 시작해주세요.")
+        
+        # 데모 차트 표시
+        st.subheader("📈 데모 차트")
+        demo_data = generate_demo_data()
+        
+        fig = go.Figure()
+        fig.add_trace(go.Scatter(
+            x=demo_data['time'],
+            y=demo_data['balance'],
+            mode='lines+markers',
+            name='잔고 변화',
+            line=dict(color='#4ECDC4', width=3),
+            marker=dict(size=6)
+        ))
+        
+        fig.update_layout(
+            title="💰 데모: 잔고 변화",
+            xaxis_title="시간",
+            yaxis_title="잔고 (원)",
+            template="plotly_white",
+            height=400
+        )
+        
+        st.plotly_chart(fig, use_container_width=True)
         return
     
     # 시뮬레이션 상태 조회
     try:
-        response = requests.get(f"{API_BASE_URL}/simulation/status/{st.session_state.simulation_id}")
+        response = requests.get(f"{API_BASE_URL}/simulation/status/{st.session_state.simulation_id}", timeout=5)
         if response.status_code == 200:
             status = response.json()
             
@@ -141,41 +208,45 @@ def show_realtime_monitoring():
             col1, col2, col3, col4 = st.columns(4)
             
             with col1:
+                profit_loss = status.get('profit_loss', 0)
                 st.metric(
                     "현재 잔고",
-                    f"{status['current_balance']:,.0f}원",
-                    f"{status['profit_loss']:+,.0f}원"
+                    f"{status.get('current_balance', 0):,.0f}원",
+                    f"{profit_loss:+,.0f}원"
                 )
             
             with col2:
+                profit_rate = status.get('profit_rate', 0)
                 st.metric(
                     "수익률",
-                    f"{status['profit_rate']:+.2f}%",
-                    f"{status['profit_rate']:+.2f}%"
+                    f"{profit_rate:+.2f}%",
+                    f"{profit_rate:+.2f}%"
                 )
             
             with col3:
-                st.metric("거래 횟수", f"{status['trade_count']}회")
+                st.metric("거래 횟수", f"{status.get('trade_count', 0)}회")
             
             with col4:
+                status_text = status.get('status', 'unknown')
                 status_color = {
                     "running": "🟢",
                     "completed": "🔵",
                     "stopped": "🔴"
-                }.get(status["status"], "⚪")
-                st.metric("상태", f"{status_color} {status['status']}")
+                }.get(status_text, "⚪")
+                st.metric("상태", f"{status_color} {status_text}")
             
-            # 실시간 차트 (모의 데이터)
-            if status['trade_count'] > 0:
-                chart_data = generate_mock_chart_data(status['trade_count'])
+            # 실시간 차트
+            if status.get('trade_count', 0) > 0:
+                chart_data = generate_mock_chart_data(status['trade_count'], status['initial_balance'])
                 
                 fig = go.Figure()
                 fig.add_trace(go.Scatter(
                     x=chart_data['time'],
                     y=chart_data['balance'],
-                    mode='lines',
+                    mode='lines+markers',
                     name='잔고 변화',
-                    line=dict(color='#4ECDC4', width=3)
+                    line=dict(color='#4ECDC4', width=3),
+                    marker=dict(size=4)
                 ))
                 
                 fig.update_layout(
@@ -188,10 +259,13 @@ def show_realtime_monitoring():
                 
                 st.plotly_chart(fig, use_container_width=True)
             
-            # 자동 새로고침
-            time.sleep(2)
-            st.rerun()
-            
+            # 자동 새로고침 (5초마다)
+            if status.get('status') == 'running':
+                time.sleep(5)
+                st.rerun()
+                
+    except requests.exceptions.Timeout:
+        st.error("❌ 서버 응답 시간 초과")
     except Exception as e:
         st.error(f"❌ 데이터 조회 실패: {str(e)}")
 
@@ -202,14 +276,14 @@ def show_backtesting():
     col1, col2 = st.columns(2)
     
     with col1:
-        bt_strategy = st.selectbox("전략", ["arbitrage", "short_trading", "leverage_trading"])
-        bt_symbol = st.selectbox("거래쌍", ["BTC/KRW", "ETH/KRW", "XRP/KRW"])
+        bt_strategy = st.selectbox("전략", ["arbitrage", "short_trading", "leverage_trading"], key="bt_strategy")
+        bt_symbol = st.selectbox("거래쌍", ["BTC/KRW", "ETH/KRW", "XRP/KRW"], key="bt_symbol")
     
     with col2:
         bt_start_date = st.date_input("시작 날짜", datetime.now() - timedelta(days=30))
         bt_end_date = st.date_input("종료 날짜", datetime.now())
     
-    bt_initial_balance = st.number_input("초기 자본금", value=1000000, step=100000)
+    bt_initial_balance = st.number_input("초기 자본금", value=1000000, step=100000, key="bt_balance")
     
     if st.button("🔍 백테스팅 실행", type="secondary"):
         with st.spinner("백테스팅 실행 중..."):
@@ -220,7 +294,7 @@ def show_backtesting():
                     "start_date": bt_start_date.isoformat() + "T00:00:00",
                     "end_date": bt_end_date.isoformat() + "T23:59:59",
                     "initial_balance": bt_initial_balance
-                })
+                }, timeout=15)
                 
                 if response.status_code == 200:
                     result = response.json()
@@ -250,6 +324,9 @@ def show_backtesting():
                         st.metric("최대 낙폭", f"{result['max_drawdown']:.2f}%")
                     with col2:
                         st.metric("샤프 비율", f"{result['sharpe_ratio']:.2f}")
+                        
+                else:
+                    st.error(f"❌ 백테스팅 실패: {response.text}")
                         
             except Exception as e:
                 st.error(f"❌ 백테스팅 실패: {str(e)}")
@@ -287,7 +364,8 @@ def show_system_status():
     st.subheader("⚙️ 시스템 상태")
     
     try:
-        response = requests.get(f"{API_BASE_URL}/monitoring/system")
+        # 시스템 정보 조회
+        response = requests.get(f"{API_BASE_URL}/monitoring/system", timeout=5)
         if response.status_code == 200:
             system_info = response.json()
             
@@ -304,9 +382,9 @@ def show_system_status():
                 st.metric("프로세스 ID", system_info['process']['pid'])
                 st.metric("프로세스 CPU", f"{system_info['process']['cpu_percent']:.1f}%")
                 st.metric("프로세스 메모리", f"{system_info['process']['memory_mb']:.1f}MB")
-                
+        
         # 헬스체크
-        response = requests.get(f"{API_BASE_URL}/monitoring/health")
+        response = requests.get(f"{API_BASE_URL}/monitoring/health", timeout=5)
         if response.status_code == 200:
             health = response.json()
             
@@ -318,14 +396,23 @@ def show_system_status():
     except Exception as e:
         st.error(f"❌ 시스템 정보 조회 실패: {str(e)}")
 
-def generate_mock_chart_data(trade_count):
-    """모의 차트 데이터 생성"""
-    import numpy as np
-    
-    times = pd.date_range(start=datetime.now() - timedelta(hours=1), periods=trade_count, freq='2min')
+def generate_demo_data():
+    """데모 데이터 생성"""
+    times = pd.date_range(start=datetime.now() - timedelta(hours=24), periods=50, freq='30min')
     base_balance = 1000000
-    changes = np.random.randn(trade_count).cumsum() * 5000
+    changes = np.random.randn(50).cumsum() * 5000
     balances = base_balance + changes
+    
+    return pd.DataFrame({
+        'time': times,
+        'balance': balances
+    })
+
+def generate_mock_chart_data(trade_count, initial_balance):
+    """모의 차트 데이터 생성"""
+    times = pd.date_range(start=datetime.now() - timedelta(hours=1), periods=trade_count, freq='2min')
+    changes = np.random.randn(trade_count).cumsum() * 2000
+    balances = initial_balance + changes
     
     return pd.DataFrame({
         'time': times,

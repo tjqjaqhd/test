@@ -44,8 +44,9 @@ def run_streamlit():
             "--server.enableCORS=true",
             "--server.enableXsrfProtection=false",
             "--server.enableWebsocketCompression=false",
-            "--theme.base=dark",
-            "--client.showErrorDetails=true"
+            "--server.allowRunOnSave=false",
+            "--server.runOnSave=false",
+            "--client.showErrorDetails=false"
         ]
         
         streamlit_process = subprocess.Popen(

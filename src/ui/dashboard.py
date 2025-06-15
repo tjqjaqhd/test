@@ -141,16 +141,28 @@ def main():
     tab1, tab2, tab3, tab4 = st.tabs(["📊 실시간 모니터링", "📈 백테스팅", "📋 거래 기록", "⚙️ 시스템 상태"])
     
     with tab1:
-        show_realtime_monitoring()
+        try:
+            show_realtime_monitoring()
+        except Exception as e:
+            st.error(f"실시간 모니터링 오류: {str(e)}")
     
     with tab2:
-        show_backtesting()
+        try:
+            show_backtesting()
+        except Exception as e:
+            st.error(f"백테스팅 오류: {str(e)}")
     
     with tab3:
-        show_trade_history()
+        try:
+            show_trade_history()
+        except Exception as e:
+            st.error(f"거래 기록 오류: {str(e)}")
     
     with tab4:
-        show_system_status()
+        try:
+            show_system_status()
+        except Exception as e:
+            st.error(f"시스템 상태 오류: {str(e)}")
 
 def start_simulation(strategy, symbol, initial_balance, duration_hours):
     """시뮬레이션 시작"""
@@ -357,12 +369,12 @@ def show_trade_history():
     
     # 모의 거래 데이터
     mock_trades = pd.DataFrame({
-        '시간': pd.date_range(start='2024-01-01', periods=20, freq='H'),
+        '시간': pd.date_range(start='2024-01-01', periods=20, freq='h'),
         '거래쌍': ['BTC/KRW'] * 20,
-        '매수/매도': ['매수', '매도'] * 10,
-        '수량': [0.001, 0.0015, 0.002] * 7 + [0.001],
+        '매수/매도': (['매수', '매도'] * 10)[:20],
+        '수량': ([0.001, 0.0015, 0.002] * 7)[:20],
         '가격': [50000000 + i*100000 for i in range(20)],
-        '손익': [5000, -3000, 8000, -2000, 12000] * 4
+        '손익': ([5000, -3000, 8000, -2000, 12000] * 4)[:20]
     })
     
     st.dataframe(mock_trades, use_container_width=True)

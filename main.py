@@ -100,8 +100,29 @@ def signal_handler(signum, frame):
     cleanup()
     sys.exit(0)
 
+def check_port_availability(port):
+    """포트 사용 가능 여부 확인"""
+    import socket
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            s.bind(('0.0.0.0', port))
+            return True
+    except:
+        return False
+
 def main():
     """메인 애플리케이션 시작점"""
+    # 포트 사용 가능 여부 확인
+    if not check_port_availability(5000):
+        print("⚠️ 포트 5000이 사용 중입니다. 기존 프로세스를 종료합니다...")
+        os.system("pkill -f streamlit")
+        time.sleep(2)
+    
+    if not check_port_availability(8000):
+        print("⚠️ 포트 8000이 사용 중입니다. 기존 프로세스를 종료합니다...")
+        os.system("pkill -f uvicorn")
+        time.sleep(2)
+    
     # 시그널 핸들러 등록
     signal.signal(signal.SIGINT, signal_handler)
     signal.signal(signal.SIGTERM, signal_handler)
@@ -123,9 +144,26 @@ def main():
     streamlit_thread = threading.Thread(target=run_streamlit, daemon=True)
     streamlit_thread.start()
     
-    # 충분한 대기 시간
+    # 충분한 대기 시간과 상태 확인
     print("⏳ Streamlit 초기화를 기다리는 중...")
-    time.sleep(8)
+    time.sleep(5)
+    
+    # Streamlit 서버 준비 확인
+    streamlit_ready = False
+    for i in range(10):
+        try:
+            import requests
+            response = requests.get("http://127.0.0.1:5000", timeout=2)
+            if response.status_code == 200:
+                streamlit_ready = True
+                print("✅ Streamlit 서버 준비 완료!")
+                break
+        except:
+            pass
+        time.sleep(1)
+    
+    if not streamlit_ready:
+        print("⚠️ Streamlit 서버 확인 실패 - 계속 진행합니다...")
     
     try:
         run_fastapi()

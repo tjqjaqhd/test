@@ -53,6 +53,10 @@ def create_app() -> FastAPI:
     app.include_router(monitoring_router)
     app.include_router(market_router)
     
+    # AI 분석 라우터 추가
+    from src.api.routes.ai_analysis import router as ai_router
+    app.include_router(ai_router)
+    
     # 기본 엔드포인트
     @app.get("/")
     async def root():

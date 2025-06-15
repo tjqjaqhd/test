@@ -17,11 +17,21 @@ run = ["sh", "-c", "python main.py"]
 deploymentTarget = "cloudrun"
 
 [workflows]
+runButton = "Start Trading Simulator"
 
 [[workflows.workflow]]
 name = "Run Trading Simulator"
 author = 43622514
 mode = "parallel"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "python main.py"
+
+[[workflows.workflow]]
+name = "Start Trading Simulator"
+author = 43622514
+mode = "sequential"
 
 [[workflows.workflow.tasks]]
 task = "shell.exec"

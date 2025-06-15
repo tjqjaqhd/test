@@ -14,20 +14,20 @@ from src.core.config import get_settings
 from src.core.logging_config import get_logger
 from src.api.routes.simulation import router as simulation_router
 from src.api.routes.monitoring import router as monitoring_router
-from src.api.routes.market import router as market_router
 
+# 로거 초기화
 logger = get_logger(__name__)
+settings = get_settings()
 
 def create_app() -> FastAPI:
-    """FastAPI 애플리케이션 생성"""
-    settings = get_settings()
+    """FastAPI 애플리케이션 생성 및 설정"""
     
     app = FastAPI(
-        title=settings.app_name,
-        version=settings.app_version,
-        description="암호화폐 트레이딩 시뮬레이터 API",
-        docs_url="/docs",
-        redoc_url="/redoc"
+        title="🚀 트레이딩 시뮬레이터 API",
+        description="실시간 암호화폐 트레이딩 시뮬레이션 & 백테스팅 플랫폼",
+        version="1.0.0",
+        docs_url="/docs" if settings.debug else None,
+        redoc_url="/redoc" if settings.debug else None
     )
     
     # CORS 미들웨어 설정
@@ -41,37 +41,69 @@ def create_app() -> FastAPI:
     
     # 요청 로깅 미들웨어
     @app.middleware("http")
-    async def log_requests(request: Request, call_next):
+    async def logging_middleware(request: Request, call_next):
         start_time = time.time()
+        
+        # 요청 로깅
+        logger.info(f"📥 {request.method} {request.url.path}")
+        
         response = await call_next(request)
+        
+        # 응답 시간 계산
         process_time = time.time() - start_time
-        logger.info(f"{request.method} {request.url.path} - {response.status_code} - {process_time:.2f}s")
+        logger.info(f"📤 {request.method} {request.url.path} - {response.status_code} ({process_time:.3f}s)")
+        
         return response
     
     # 라우터 등록
     app.include_router(simulation_router)
     app.include_router(monitoring_router)
-    app.include_router(market_router)
     
-    # AI 분석 라우터 추가
-    from src.api.routes.ai_analysis import router as ai_router
-    app.include_router(ai_router)
-    
-    # 기본 엔드포인트
-    @app.get("/")
-    async def root():
+    # 헬스체크 엔드포인트
+    @app.get("/health")
+    async def health_check():
+        """서버 상태 확인"""
         return {
-            "message": f"🚀 {settings.app_name} API 서버",
-            "version": settings.app_version,
+            "status": "healthy",
             "timestamp": datetime.now().isoformat(),
-            "docs": "/docs",
-            "health": "/api/v1/monitoring/health"
+            "version": "1.0.0",
+            "mode": "simulation" if settings.simulation_mode else "live"
         }
     
-    # 헬스체크 (간단한 버전)
-    @app.get("/health")
-    async def simple_health():
-        return {"status": "healthy", "timestamp": datetime.now().isoformat()}
+    # 루트 엔드포인트
+    @app.get("/")
+    async def root():
+        """API 정보"""
+        return {
+            "message": "🚀 트레이딩 시뮬레이터 API",
+            "docs": "/docs",
+            "health": "/health",
+            "simulation_mode": settings.simulation_mode
+        }
     
-    logger.info("✅ FastAPI 애플리케이션 생성 완료")
+    # 예외 핸들러
+    @app.exception_handler(Exception)
+    async def global_exception_handler(request: Request, exc: Exception):
+        logger.error(f"❌ Unhandled exception: {str(exc)}")
+        return JSONResponse(
+            status_code=500,
+            content={"detail": f"Internal server error: {str(exc)}"}
+        )
+    
+    logger.info("✅ FastAPI 애플리케이션 초기화 완료")
     return app
+
+# 애플리케이션 인스턴스
+app = create_app()
+
+if __name__ == "__main__":
+    import uvicorn
+    
+    logger.info(f"🚀 서버 시작: http://{settings.api_host}:{settings.api_port}")
+    uvicorn.run(
+        app,
+        host=settings.api_host,
+        port=settings.api_port,
+        log_level=settings.log_level.lower(),
+        reload=settings.debug
+    )

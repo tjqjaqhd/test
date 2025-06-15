@@ -5,7 +5,7 @@
 
 from fastapi import APIRouter, HTTPException, BackgroundTasks
 from pydantic import BaseModel
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List
 import uuid
 import asyncio
 from datetime import datetime, timedelta
@@ -15,6 +15,9 @@ import pandas as pd
 
 from src.services.exchange_service import exchange_service
 from src.services.ai_inference_service import ai_service
+from src.core.logging_config import get_logger
+
+logger = get_logger(__name__)
 
 router = APIRouter(prefix="/api/v1/simulation", tags=["simulation"])
 

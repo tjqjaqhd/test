@@ -1,4 +1,3 @@
-
 """
 🌐 FastAPI 메인 애플리케이션
 REST API 서버 및 라우팅 설정
@@ -15,13 +14,14 @@ from src.core.logging_config import get_logger
 from src.api.routes.simulation import router as simulation_router
 from src.api.routes.monitoring import router as monitoring_router
 from src.api.routes.market import router as market_router
+from src.api.routes.ai_analysis import router as ai_router
 
 logger = get_logger(__name__)
 
 def create_app() -> FastAPI:
     """FastAPI 애플리케이션 생성"""
     settings = get_settings()
-    
+
     app = FastAPI(
         title=settings.app_name,
         version=settings.app_version,
@@ -29,7 +29,7 @@ def create_app() -> FastAPI:
         docs_url="/docs",
         redoc_url="/redoc"
     )
-    
+
     # CORS 미들웨어 설정
     app.add_middleware(
         CORSMiddleware,
@@ -38,7 +38,7 @@ def create_app() -> FastAPI:
         allow_methods=["*"],
         allow_headers=["*"],
     )
-    
+
     # 요청 로깅 미들웨어
     @app.middleware("http")
     async def log_requests(request: Request, call_next):
@@ -47,16 +47,15 @@ def create_app() -> FastAPI:
         process_time = time.time() - start_time
         logger.info(f"{request.method} {request.url.path} - {response.status_code} - {process_time:.2f}s")
         return response
-    
+
     # 라우터 등록
     app.include_router(simulation_router)
     app.include_router(monitoring_router)
     app.include_router(market_router)
-    
+
     # AI 분석 라우터 추가
-    from src.api.routes.ai_analysis import router as ai_router
     app.include_router(ai_router)
-    
+
     # 기본 엔드포인트
     @app.get("/")
     async def root():
@@ -67,11 +66,11 @@ def create_app() -> FastAPI:
             "docs": "/docs",
             "health": "/api/v1/monitoring/health"
         }
-    
+
     # 헬스체크 (간단한 버전)
     @app.get("/health")
     async def simple_health():
         return {"status": "healthy", "timestamp": datetime.now().isoformat()}
-    
+
     logger.info("✅ FastAPI 애플리케이션 생성 완료")
     return app

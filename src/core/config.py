@@ -1,90 +1,132 @@
 
 """
-⚙️ 애플리케이션 설정 관리
-환경별 설정 및 전역 상수 정의
+⚙️ 설정 관리 모듈
 """
 
-from pydantic_settings import BaseSettings
-from pydantic import Field
-from typing import Optional
 import os
-from pathlib import Path
+from typing import Optional
+from pydantic_settings import BaseSettings
+from functools import lru_cache
+
 
 class Settings(BaseSettings):
     """애플리케이션 설정"""
     
-    # 기본 설정
-    app_name: str = "트레이딩 시뮬레이터"
+    # 기본 애플리케이션 설정
+    app_name: str = "Trading Simulator"
     app_version: str = "1.0.0"
-    debug: bool = Field(default=False, env="DEBUG")
-    log_level: str = Field(default="INFO", env="LOG_LEVEL")
-    
-    # API 설정
-    api_host: str = Field(default="0.0.0.0", env="API_HOST")
-    api_port: int = Field(default=8000, env="API_PORT")
+    debug: bool = True
+    host: str = "0.0.0.0"
+    port: int = 5000
     
     # 데이터베이스 설정
-    database_url: Optional[str] = Field(default=None, env="DATABASE_URL")
-    redis_url: Optional[str] = Field(default=None, env="REDIS_URL")
+    database_url: Optional[str] = None
+    db_host: str = "localhost"
+    db_port: int = 5432
+    db_name: str = "trading_simulator"
+    db_user: str = "user"
+    db_password: str = "password"
     
-    # 거래소 API 키 (환경변수에서 읽음)
-    binance_api_key: Optional[str] = Field(default=None, env="BINANCE_API_KEY")
-    binance_secret_key: Optional[str] = Field(default=None, env="BINANCE_SECRET_KEY")
-    upbit_access_key: Optional[str] = Field(default=None, env="UPBIT_ACCESS_KEY")
-    upbit_secret_key: Optional[str] = Field(default=None, env="UPBIT_SECRET_KEY")
+    # Redis 설정
+    redis_url: str = "redis://localhost:6379/0"
+    redis_host: str = "localhost"
+    redis_port: int = 6379
+    redis_db: int = 0
     
-    # 시뮬레이션 설정
-    simulation_mode: bool = Field(default=True, env="SIMULATION_MODE")
-    initial_balance: float = Field(default=1000000.0, env="INITIAL_BALANCE")  # 초기 자본금 (원)
+    # 보안 설정
+    secret_key: str = "development-secret-key-change-in-production"
+    jwt_algorithm: str = "HS256"
+    jwt_expiration_hours: int = 24
     
-    # 파일 경로 설정
-    @property
-    def project_root(self) -> Path:
-        return Path(__file__).parent.parent.parent
+    # 거래소 API 키
+    binance_api_key: Optional[str] = None
+    binance_secret_key: Optional[str] = None
+    binance_testnet: bool = True
     
-    @property
-    def data_dir(self) -> Path:
-        return self.project_root / "data"
+    upbit_access_key: Optional[str] = None
+    upbit_secret_key: Optional[str] = None
     
-    @property
-    def config_dir(self) -> Path:
-        return self.project_root / "config"
+    bithumb_api_key: Optional[str] = None
+    bithumb_secret_key: Optional[str] = None
     
-    @property
-    def logs_dir(self) -> Path:
-        return self.project_root / "logs"
+    # AI/ML 설정
+    huggingface_api_token: Optional[str] = None
+    openai_api_key: Optional[str] = None
+    
+    # 로깅 설정
+    log_level: str = "INFO"
+    log_file_path: str = "logs/trading_simulator.log"
+    
+    # 모니터링 설정
+    prometheus_port: int = 9090
+    grafana_port: int = 3000
+    grafana_admin_user: str = "admin"
+    grafana_admin_password: str = "admin"
+    
+    # 성능 설정
+    max_websocket_connections: int = 100
+    rate_limit_per_minute: int = 60
+    price_cache_ttl: int = 10
+    analysis_cache_ttl: int = 300
+    
+    # 알림 설정
+    smtp_host: Optional[str] = None
+    smtp_port: int = 587
+    smtp_user: Optional[str] = None
+    smtp_password: Optional[str] = None
+    
+    telegram_bot_token: Optional[str] = None
+    telegram_chat_id: Optional[str] = None
     
     class Config:
         env_file = ".env"
         env_file_encoding = "utf-8"
+        case_sensitive = False
+    
+    @property
+    def database_url_complete(self) -> str:
+        """완전한 데이터베이스 URL 생성"""
+        if self.database_url:
+            return self.database_url
+        return f"postgresql://{self.db_user}:{self.db_password}@{self.db_host}:{self.db_port}/{self.db_name}"
+    
+    @property
+    def redis_url_complete(self) -> str:
+        """완전한 Redis URL 생성"""
+        return f"redis://{self.redis_host}:{self.redis_port}/{self.redis_db}"
+    
+    def is_production(self) -> bool:
+        """프로덕션 환경 여부 확인"""
+        return not self.debug
+    
+    def get_exchange_config(self, exchange: str) -> dict:
+        """거래소별 설정 반환"""
+        configs = {
+            "binance": {
+                "apiKey": self.binance_api_key,
+                "secret": self.binance_secret_key,
+                "sandbox": self.binance_testnet,
+                "enableRateLimit": True,
+            },
+            "upbit": {
+                "apiKey": self.upbit_access_key,
+                "secret": self.upbit_secret_key,
+                "enableRateLimit": True,
+            },
+            "bithumb": {
+                "apiKey": self.bithumb_api_key,
+                "secret": self.bithumb_secret_key,
+                "enableRateLimit": True,
+            }
+        }
+        return configs.get(exchange, {})
+
+
+@lru_cache()
+def get_settings() -> Settings:
+    """설정 인스턴스 반환 (캐시됨)"""
+    return Settings()
+
 
 # 전역 설정 인스턴스
-_settings: Optional[Settings] = None
-
-def get_settings() -> Settings:
-    """설정 싱글톤 반환"""
-    global _settings
-    if _settings is None:
-        _settings = Settings()
-    return _settings
-
-# 상수 정의
-class TradingConstants:
-    """트레이딩 관련 상수"""
-    
-    # 수수료율
-    BINANCE_MAKER_FEE = 0.001  # 0.1%
-    BINANCE_TAKER_FEE = 0.001  # 0.1%
-    UPBIT_FEE = 0.0005  # 0.05%
-    
-    # 최소 거래 금액
-    MIN_TRADE_AMOUNT = 5000  # 5천원
-    
-    # 백테스팅 기본 기간
-    DEFAULT_BACKTEST_DAYS = 30
-    
-    # 지원 거래쌍
-    SUPPORTED_PAIRS = [
-        "BTC/KRW", "ETH/KRW", "XRP/KRW", "ADA/KRW",
-        "DOT/KRW", "LINK/KRW", "LTC/KRW", "BCH/KRW"
-    ]
+settings = get_settings()

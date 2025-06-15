@@ -21,7 +21,7 @@ runButton = "Run Trading Simulator"
 [[workflows.workflow]]
 name = "Run Trading Simulator"
 author = 43622514
-mode = "sequential"
+mode = "parallel"
 
 [[workflows.workflow.tasks]]
 task = "shell.exec"

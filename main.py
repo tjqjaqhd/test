@@ -9,14 +9,14 @@ import asyncio
 import uvicorn
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-import streamlit.web.cli as stcli
+import subprocess
 import sys
 import threading
 import time
 from pathlib import Path
+import os
 
 # 프로젝트 루트를 Python path에 추가
-import os
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
 from src.core.config import get_settings
@@ -25,8 +25,17 @@ from src.api.main import create_app
 
 def run_streamlit():
     """Streamlit 대시보드 실행"""
-    sys.argv = ["streamlit", "run", "src/ui/dashboard.py", "--server.port=8501", "--server.address=0.0.0.0"]
-    stcli.main()
+    try:
+        print("🚀 Streamlit 대시보드를 시작합니다...")
+        subprocess.run([
+            "streamlit", "run", "src/ui/dashboard.py",
+            "--server.port=5000",
+            "--server.address=0.0.0.0",
+            "--server.headless=true",
+            "--browser.gatherUsageStats=false"
+        ])
+    except Exception as e:
+        print(f"❌ Streamlit 실행 오류: {e}")
 
 def run_fastapi():
     """FastAPI 서버 실행"""
@@ -47,14 +56,14 @@ def main():
     
     print("🚀 트레이딩 시뮬레이터 시작 중...")
     print("📊 FastAPI 서버: http://0.0.0.0:8000")
-    print("📈 Streamlit 대시보드: http://0.0.0.0:8501")
+    print("📈 Streamlit 대시보드: http://0.0.0.0:5000")
     
     # Streamlit을 별도 스레드에서 실행
     streamlit_thread = threading.Thread(target=run_streamlit, daemon=True)
     streamlit_thread.start()
     
     # 잠시 대기 후 FastAPI 실행
-    time.sleep(2)
+    time.sleep(3)
     run_fastapi()
 
 if __name__ == "__main__":

@@ -287,7 +287,7 @@ def show_system_status():
     st.subheader("⚙️ 시스템 상태")
     
     try:
-        response = requests.get(f"http://0.0.0.0:8000/api/v1/monitoring/system")
+        response = requests.get(f"{API_BASE_URL}/monitoring/system")
         if response.status_code == 200:
             system_info = response.json()
             
@@ -306,7 +306,7 @@ def show_system_status():
                 st.metric("프로세스 메모리", f"{system_info['process']['memory_mb']:.1f}MB")
                 
         # 헬스체크
-        response = requests.get(f"http://0.0.0.0:8000/api/v1/monitoring/health")
+        response = requests.get(f"{API_BASE_URL}/monitoring/health")
         if response.status_code == 200:
             health = response.json()
             

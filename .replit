@@ -17,7 +17,6 @@ run = ["sh", "-c", "python main.py"]
 deploymentTarget = "cloudrun"
 
 [workflows]
-runButton = "Run Trading Simulator"
 
 [[workflows.workflow]]
 name = "Run Trading Simulator"

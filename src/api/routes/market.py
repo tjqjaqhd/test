@@ -168,3 +168,102 @@ async def get_multi_price(
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+"""
+📊 시장 데이터 관련 API 라우트
+실시간 가격, 차트 데이터, 시장 분석 제공
+"""
+
+from fastapi import APIRouter, HTTPException
+from typing import Dict, List, Optional
+from datetime import datetime, timedelta
+import asyncio
+
+from src.services.exchange_service import exchange_service
+from src.core.logging_config import get_logger
+
+router = APIRouter(prefix="/api/v1/market", tags=["market"])
+logger = get_logger(__name__)
+
+@router.get("/price/{symbol}")
+async def get_current_price(symbol: str):
+    """현재 가격 조회"""
+    try:
+        price = await exchange_service.get_current_price(symbol)
+        if not price:
+            raise HTTPException(status_code=404, detail="가격 정보를 찾을 수 없습니다")
+        
+        return {
+            "symbol": symbol,
+            "price": price,
+            "timestamp": datetime.now().isoformat()
+        }
+    except Exception as e:
+        logger.error(f"가격 조회 오류: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.get("/ohlcv/{symbol}")
+async def get_ohlcv_data(symbol: str, timeframe: str = "1d", limit: int = 100):
+    """OHLCV 차트 데이터 조회"""
+    try:
+        data = await exchange_service.get_ohlcv_data(symbol, timeframe, limit)
+        return {
+            "symbol": symbol,
+            "timeframe": timeframe,
+            "data": data,
+            "count": len(data) if data else 0
+        }
+    except Exception as e:
+        logger.error(f"OHLCV 데이터 조회 오류: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.get("/orderbook/{symbol}")
+async def get_orderbook(symbol: str):
+    """호가창 데이터 조회"""
+    try:
+        orderbook = await exchange_service.get_orderbook(symbol)
+        return {
+            "symbol": symbol,
+            "orderbook": orderbook,
+            "timestamp": datetime.now().isoformat()
+        }
+    except Exception as e:
+        logger.error(f"호가창 조회 오류: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.get("/symbols")
+async def get_supported_symbols():
+    """지원하는 거래쌍 목록"""
+    return {
+        "symbols": [
+            "BTC/KRW", "ETH/KRW", "XRP/KRW", "ADA/KRW",
+            "DOT/KRW", "LINK/KRW", "LTC/KRW", "BCH/KRW"
+        ],
+        "exchanges": ["upbit", "binance"]
+    }
+
+@router.get("/market-summary")
+async def get_market_summary():
+    """시장 전체 요약"""
+    try:
+        symbols = ["BTC/KRW", "ETH/KRW", "XRP/KRW", "ADA/KRW"]
+        summary = []
+        
+        for symbol in symbols:
+            try:
+                price = await exchange_service.get_current_price(symbol)
+                if price:
+                    summary.append({
+                        "symbol": symbol,
+                        "price": price,
+                        "change_24h": 0.0  # 실제 구현 시 24시간 변화율 계산
+                    })
+            except:
+                continue
+        
+        return {
+            "market_summary": summary,
+            "timestamp": datetime.now().isoformat()
+        }
+    except Exception as e:
+        logger.error(f"시장 요약 조회 오류: {e}")
+        raise HTTPException(status_code=500, detail=str(e))

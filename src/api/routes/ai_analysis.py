@@ -1,95 +1,133 @@
 
 """
-🤖 AI 분석 API 라우트
+🤖 AI 분석 관련 API 라우트
+시장 분석, 가격 예측, 전략 추천 제공
 """
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
-from typing import Optional, Dict, List
+from typing import Dict, List, Optional
+from datetime import datetime
 import pandas as pd
-from datetime import datetime, timedelta
 
-from src.services.exchange_service import exchange_service
 from src.services.ai_inference_service import ai_service
+from src.services.exchange_service import exchange_service
+from src.core.logging_config import get_logger
 
-router = APIRouter(prefix="/api/v1/ai", tags=["ai-analysis"])
+router = APIRouter(prefix="/api/v1/ai", tags=["ai_analysis"])
+logger = get_logger(__name__)
 
 class AnalysisRequest(BaseModel):
     symbol: str
-    hours: int = 24
-    exchange: str = "upbit"
+    timeframe: str = "1d"
+    days: int = 30
 
-@router.post("/analyze")
-async def analyze_market(request: AnalysisRequest):
-    """종합 AI 시장 분석"""
+@router.post("/sentiment/{symbol}")
+async def analyze_market_sentiment(symbol: str):
+    """시장 심리 분석"""
     try:
-        # 실제 시장 데이터 수집
+        sentiment = await ai_service.analyze_market_sentiment(symbol)
+        return {
+            "symbol": symbol,
+            "sentiment": sentiment,
+            "timestamp": datetime.now().isoformat()
+        }
+    except Exception as e:
+        logger.error(f"심리 분석 오류: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.post("/predict-price")
+async def predict_price_direction(request: AnalysisRequest):
+    """가격 방향 예측"""
+    try:
+        # 과거 데이터 조회
+        ohlcv_data = await exchange_service.get_ohlcv_data(
+            request.symbol, request.timeframe, request.days
+        )
+        
+        if not ohlcv_data:
+            raise HTTPException(status_code=400, detail="시장 데이터를 가져올 수 없습니다")
+        
+        df = pd.DataFrame(ohlcv_data)
+        prediction = await ai_service.predict_price_direction(df, request.symbol)
+        
+        return {
+            "symbol": request.symbol,
+            "prediction": prediction,
+            "timeframe": request.timeframe,
+            "timestamp": datetime.now().isoformat()
+        }
+    except Exception as e:
+        logger.error(f"가격 예측 오류: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.post("/strategy-recommendation")
+async def recommend_trading_strategy(request: AnalysisRequest):
+    """거래 전략 추천"""
+    try:
+        # 시장 데이터 수집
         market_data = await exchange_service.get_real_trading_data(
-            request.symbol, request.hours, request.exchange
+            request.symbol, request.days * 24
         )
         
         if not market_data:
             raise HTTPException(status_code=400, detail="시장 데이터를 가져올 수 없습니다")
         
-        # 데이터프레임 생성
-        historical_df = pd.DataFrame(market_data['historical_data'])
-        
-        # AI 분석 실행
+        # AI 분석
         sentiment = await ai_service.analyze_market_sentiment(request.symbol)
-        prediction = await ai_service.predict_price_direction(historical_df, request.symbol)
+        df = pd.DataFrame(market_data['historical_data'])
+        prediction = await ai_service.predict_price_direction(df, request.symbol)
+        
+        # 전략 생성
         strategy = await ai_service.generate_trading_strategy(
             request.symbol, market_data, sentiment, prediction
         )
         
         return {
             "symbol": request.symbol,
-            "analysis_time": datetime.now().isoformat(),
-            "market_data": {
-                "current_price": market_data['current_price'],
-                "volatility": market_data['volatility'],
-                "trend": market_data['price_trend'],
-                "volume_avg": market_data['volume_avg']
-            },
-            "ai_analysis": {
+            "strategy": strategy,
+            "market_analysis": {
                 "sentiment": sentiment,
-                "prediction": prediction,
-                "strategy": strategy
+                "prediction": prediction
             },
-            "risk_assessment": {
-                "level": "높음" if market_data['volatility'] > 0.05 else "중간" if market_data['volatility'] > 0.02 else "낮음",
-                "volatility_score": market_data['volatility'],
-                "recommendation": "신중한 거래" if market_data['volatility'] > 0.05 else "일반 거래"
-            }
+            "timestamp": datetime.now().isoformat()
         }
-        
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"분석 실패: {str(e)}")
+        logger.error(f"전략 추천 오류: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
-@router.get("/models/status")
-async def get_ai_models_status():
-    """AI 모델 상태 확인"""
-    return {
-        "models": {
-            "sentiment_analysis": {
-                "name": "Market Sentiment Analyzer",
-                "status": "active",
-                "accuracy": "85%",
-                "last_updated": datetime.now().isoformat()
-            },
-            "price_prediction": {
-                "name": "Technical Analysis Predictor", 
-                "status": "active",
-                "accuracy": "78%",
-                "last_updated": datetime.now().isoformat()
-            },
-            "strategy_generator": {
-                "name": "AI Trading Strategy Generator",
-                "status": "active", 
-                "accuracy": "82%",
-                "last_updated": datetime.now().isoformat()
-            }
-        },
-        "system_status": "operational",
-        "total_analyses": "실시간 카운팅",
-        "uptime": "99.9%"
-    }
+@router.get("/technical-indicators/{symbol}")
+async def get_technical_indicators(symbol: str, timeframe: str = "1d", limit: int = 100):
+    """기술적 지표 분석"""
+    try:
+        ohlcv_data = await exchange_service.get_ohlcv_data(symbol, timeframe, limit)
+        
+        if not ohlcv_data:
+            raise HTTPException(status_code=400, detail="시장 데이터를 가져올 수 없습니다")
+        
+        indicators = await ai_service.calculate_technical_indicators(ohlcv_data)
+        
+        return {
+            "symbol": symbol,
+            "indicators": indicators,
+            "timestamp": datetime.now().isoformat()
+        }
+    except Exception as e:
+        logger.error(f"기술적 지표 계산 오류: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.get("/risk-assessment/{symbol}")
+async def assess_trading_risk(symbol: str, investment_amount: float = 1000000):
+    """리스크 평가"""
+    try:
+        risk_assessment = await ai_service.assess_trading_risk(symbol, investment_amount)
+        
+        return {
+            "symbol": symbol,
+            "investment_amount": investment_amount,
+            "risk_assessment": risk_assessment,
+            "timestamp": datetime.now().isoformat()
+        }
+    except Exception as e:
+        logger.error(f"리스크 평가 오류: {e}")
+        raise HTTPException(status_code=500, detail=str(e))

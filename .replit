@@ -4,7 +4,7 @@ modules = ["python-3.11"]
 
 [nix]
 channel = "stable-24_05"
-packages = ["cargo", "glibcLocales", "libiconv", "libxcrypt", "openssl", "pkg-config", "rustc"]
+packages = ["glibcLocales", "libxcrypt"]
 
 [unitTest]
 language = "python3"

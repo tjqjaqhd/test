@@ -1,0 +1,67 @@
+# 트레이딩 시뮬레이터 컨테이너
+# 멀티스테이지 빌드로 최적화
+
+# ========================================
+# Stage 1: 빌드 환경
+# ========================================
+FROM python:3.11-slim AS builder
+
+# 시스템 의존성 설치 (컴파일 도구들)
+RUN apt-get update && apt-get install -y \
+    build-essential \
+    gcc \
+    g++ \
+    make \
+    wget \
+    curl \
+    git \
+    && rm -rf /var/lib/apt/lists/*
+
+# TA-Lib 설치 (기술적 지표 라이브러리)
+RUN wget http://prdownloads.sourceforge.net/ta-lib/ta-lib-0.4.0-src.tar.gz && \
+    tar -xzf ta-lib-0.4.0-src.tar.gz && \
+    cd ta-lib/ && \
+    ./configure --prefix=/usr/local && \
+    make && make install && \
+    cd .. && rm -rf ta-lib*
+
+# Python 의존성 설치
+COPY requirements.txt .
+RUN pip install --user --no-cache-dir -r requirements.txt
+
+# ========================================
+# Stage 2: 실행 환경 (최적화된 경량 이미지)
+# ========================================
+FROM python:3.11-slim
+
+# 런타임 의존성만 설치
+RUN apt-get update && apt-get install -y \
+    libgomp1 \
+    && rm -rf /var/lib/apt/lists/*
+
+# 빌드 스테이지에서 설치된 패키지들 복사
+COPY --from=builder /root/.local /root/.local
+COPY --from=builder /usr/local/lib /usr/local/lib
+
+# 작업 디렉토리 설정
+WORKDIR /app
+
+# 애플리케이션 코드 복사
+COPY src/ ./src/
+COPY config/ ./config/
+COPY data/ ./data/
+
+# 환경변수 설정
+ENV PATH=/root/.local/bin:$PATH
+ENV PYTHONPATH=/app
+ENV PYTHONUNBUFFERED=1
+
+# 포트 노출 (웹 UI용)
+EXPOSE 8000 8501
+
+# 헬스체크 추가
+HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+    CMD curl -f http://localhost:8000/health || exit 1
+
+# 시작 명령어
+CMD ["python", "src/main.py"]

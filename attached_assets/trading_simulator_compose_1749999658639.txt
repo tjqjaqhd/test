@@ -1,0 +1,117 @@
+version: '3.8'
+
+services:
+  # ========================================
+  # 메인 트레이딩 시뮬레이터
+  # ========================================
+  trading-simulator:
+    build: 
+      context: .
+      dockerfile: Dockerfile
+    container_name: trading-sim
+    ports:
+      - "8000:8000"  # FastAPI 서버
+      - "8501:8501"  # Streamlit 대시보드
+    environment:
+      - REDIS_URL=redis://redis:6379
+      - POSTGRES_URL=postgresql://trader:password@postgres:5432/trading_db
+      - LOG_LEVEL=INFO
+      - SIMULATION_MODE=true
+    volumes:
+      - ./data:/app/data          # 데이터 영속성
+      - ./logs:/app/logs          # 로그 저장
+      - ./config:/app/config      # 설정 파일
+    depends_on:
+      - redis
+      - postgres
+    restart: unless-stopped
+    networks:
+      - trading-network
+
+  # ========================================
+  # Redis (실시간 데이터 캐싱)
+  # ========================================
+  redis:
+    image: redis:7-alpine
+    container_name: trading-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    command: redis-server --appendonly yes
+    restart: unless-stopped
+    networks:
+      - trading-network
+
+  # ========================================
+  # PostgreSQL (거래 데이터 저장)
+  # ========================================
+  postgres:
+    image: postgres:15-alpine
+    container_name: trading-postgres
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_DB: trading_db
+      POSTGRES_USER: trader
+      POSTGRES_PASSWORD: password
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./sql/init.sql:/docker-entrypoint-initdb.d/init.sql
+    restart: unless-stopped
+    networks:
+      - trading-network
+
+  # ========================================
+  # Grafana (모니터링 대시보드)
+  # ========================================
+  grafana:
+    image: grafana/grafana:latest
+    container_name: trading-grafana
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./grafana/dashboards:/etc/grafana/provisioning/dashboards
+      - ./grafana/datasources:/etc/grafana/provisioning/datasources
+    depends_on:
+      - postgres
+    restart: unless-stopped
+    networks:
+      - trading-network
+
+  # ========================================
+  # Jupyter Notebook (데이터 분석)
+  # ========================================
+  jupyter:
+    build:
+      context: .
+      dockerfile: Dockerfile.jupyter
+    container_name: trading-jupyter
+    ports:
+      - "8888:8888"
+    environment:
+      - JUPYTER_ENABLE_LAB=yes
+    volumes:
+      - ./notebooks:/home/jovyan/work
+      - ./data:/home/jovyan/data
+    restart: unless-stopped
+    networks:
+      - trading-network
+
+# ========================================
+# 볼륨 정의
+# ========================================
+volumes:
+  redis_data:
+  postgres_data:
+  grafana_data:
+
+# ========================================
+# 네트워크 정의
+# ========================================
+networks:
+  trading-network:
+    driver: bridge

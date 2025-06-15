@@ -16,6 +16,7 @@ import time
 from pathlib import Path
 import os
 import signal
+import atexit
 
 # 프로젝트 루트를 Python path에 추가
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
@@ -32,15 +33,36 @@ def run_streamlit():
     global streamlit_process
     try:
         print("🚀 Streamlit 대시보드를 시작합니다... (포트: 5000)")
-        streamlit_process = subprocess.Popen([
-            "streamlit", "run", "src/ui/dashboard.py",
+        
+        # Streamlit 실행 명령어 수정
+        cmd = [
+            "python", "-m", "streamlit", "run", "src/ui/dashboard.py",
             "--server.port=5000",
             "--server.address=0.0.0.0",
             "--server.headless=true",
             "--browser.gatherUsageStats=false",
-            "--theme.base=dark"
-        ])
-        streamlit_process.wait()
+            "--server.enableCORS=true",
+            "--server.enableXsrfProtection=false",
+            "--server.enableWebsocketCompression=false",
+            "--theme.base=dark",
+            "--client.showErrorDetails=true"
+        ]
+        
+        streamlit_process = subprocess.Popen(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            universal_newlines=True,
+            bufsize=1
+        )
+        
+        # Streamlit 출력 모니터링
+        for line in iter(streamlit_process.stdout.readline, ''):
+            if line:
+                print(f"[Streamlit] {line.strip()}")
+                if "You can now view your Streamlit app" in line:
+                    print("✅ Streamlit 대시보드가 성공적으로 시작되었습니다!")
+                    
     except Exception as e:
         print(f"❌ Streamlit 실행 오류: {e}")
 
@@ -56,16 +78,25 @@ def run_fastapi():
         host="0.0.0.0",
         port=8000,
         log_level=settings.log_level.lower(),
-        access_log=True
+        access_log=True,
+        reload=False
     )
+
+def cleanup():
+    """정리 작업"""
+    global streamlit_process
+    if streamlit_process:
+        print("🧹 Streamlit 프로세스를 정리합니다...")
+        streamlit_process.terminate()
+        try:
+            streamlit_process.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            streamlit_process.kill()
 
 def signal_handler(signum, frame):
     """시그널 핸들러 - 깔끔한 종료"""
     print("\n🛑 애플리케이션을 종료합니다...")
-    global streamlit_process
-    if streamlit_process:
-        streamlit_process.terminate()
-        streamlit_process.wait()
+    cleanup()
     sys.exit(0)
 
 def main():
@@ -73,6 +104,7 @@ def main():
     # 시그널 핸들러 등록
     signal.signal(signal.SIGINT, signal_handler)
     signal.signal(signal.SIGTERM, signal_handler)
+    atexit.register(cleanup)
     
     # 로깅 설정
     setup_logging()
@@ -83,15 +115,16 @@ def main():
     print("📊 FastAPI 서버: http://0.0.0.0:8000")
     print("📈 Streamlit 대시보드: http://0.0.0.0:5000")
     print("📚 API 문서: http://0.0.0.0:8000/docs")
+    print("🌐 웹뷰에서 접근: 오른쪽 상단의 'Open in new tab' 클릭")
     print("=" * 60)
     
     # Streamlit을 별도 스레드에서 실행
     streamlit_thread = threading.Thread(target=run_streamlit, daemon=True)
     streamlit_thread.start()
     
-    # 잠시 대기 후 FastAPI 실행
-    print("⏳ Streamlit 초기화 대기 중...")
-    time.sleep(5)
+    # 충분한 대기 시간
+    print("⏳ Streamlit 초기화를 기다리는 중...")
+    time.sleep(8)
     
     try:
         run_fastapi()
@@ -100,10 +133,7 @@ def main():
     except Exception as e:
         print(f"❌ 서버 실행 오류: {e}")
     finally:
-        # 정리 작업
-        global streamlit_process
-        if streamlit_process:
-            streamlit_process.terminate()
+        cleanup()
 
 if __name__ == "__main__":
     main()

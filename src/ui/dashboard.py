@@ -22,6 +22,11 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
+# 세션 상태 초기화
+if 'initialized' not in st.session_state:
+    st.session_state.initialized = True
+    st.session_state.api_retries = 0
+
 # 스타일 설정
 st.markdown("""
 <style>
@@ -55,8 +60,23 @@ API_BASE_URL = "http://0.0.0.0:8000/api/v1"
 def check_api_connection():
     """API 서버 연결 확인"""
     try:
-        response = requests.get("http://0.0.0.0:8000/health", timeout=5)
-        return response.status_code == 200
+        # 여러 방법으로 연결 시도
+        urls_to_try = [
+            "http://0.0.0.0:8000/health",
+            "http://localhost:8000/health",
+            "http://127.0.0.1:8000/health"
+        ]
+        
+        for url in urls_to_try:
+            try:
+                response = requests.get(url, timeout=3)
+                if response.status_code == 200:
+                    global API_BASE_URL
+                    API_BASE_URL = url.replace("/health", "/api/v1")
+                    return True
+            except:
+                continue
+        return False
     except:
         return False
 
